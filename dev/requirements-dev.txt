@@ -1,0 +1,12 @@
+# Development / packaging extras
+pytest>=7
+pyinstaller>=6
+
+# AI-enabled exe (dev\blacknoir-ai.spec) bundles these LLM/runtime SDKs.
+# Pinned to the versions that produced dist\blacknoir-ai.exe on 2026-08-27
+# after the BETA merge, so the build is reproducible. The lean build
+# (dev\blacknoir.spec) does not need them.
+openai>=3.5.0
+anthropic>=1.1.0
+pillow>=12.3.0
+distro>=1.9.0

@@ -1,0 +1,17 @@
+# Core (recommended for --live web collection)
+requests>=2.31
+beautifulsoup4>=4.12
+fpdf2>=2.7               # PDF reports
+
+# Optional transport: presents a real browser's TLS fingerprint instead of
+# Python's. OFF unless BLACKNOIR_IMPERSONATE is set — see the note at the top
+# of blacknoir/http.py before enabling it. Measured effect: DuckDuckGo goes
+# from HTTP 202 (challenge) to 10 results. It does NOT open login walls.
+curl_cffi>=0.7           # optional
+
+# LLM providers (all optional; install what you use)
+anthropic>=0.40          # provider: anthropic
+openai>=1.30             # providers: openai, google, nvidia, ollama (OpenAI-compatible)
+
+# Local provider: install the Ollama app separately -> https://ollama.com
+# (Black Noir auto-starts `ollama serve` when --provider ollama is chosen)

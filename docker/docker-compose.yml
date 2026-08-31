@@ -1,0 +1,45 @@
+# Black Noir — defensive container stack.
+#
+#   docker compose up -d gluetun          # bring the VPN gateway up first
+#   docker compose run --rm blacknoir <target> --live --preflight off
+#
+# The blacknoir service can route ALL its traffic through the gluetun VPN
+# container (network_mode below) so the OSINT sweep never egresses from your
+# real IP. gluetun needs your VPN provider's credentials (env below).
+services:
+
+  # ---- Optional VPN gateway (WireGuard/OpenVPN via gluetun) -----------------
+  gluetun:
+    image: qmcgaw/gluetun
+    container_name: blacknoir_vpn
+    cap_add:
+      - NET_ADMIN
+    environment:
+      # Fill these in for your provider (see gluetun docs). Examples:
+      VPN_SERVICE_PROVIDER: ${VPN_SERVICE_PROVIDER:-custom}
+      VPN_TYPE: ${VPN_TYPE:-wireguard}
+      WIREGUARD_PRIVATE_KEY: ${WIREGUARD_PRIVATE_KEY:-}
+      WIREGUARD_ADDRESSES: ${WIREGUARD_ADDRESSES:-}
+      SERVER_COUNTRIES: ${SERVER_COUNTRIES:-}
+    restart: unless-stopped
+
+  # ---- Black Noir OSINT agent ----------------------------------------------
+  blacknoir:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: blacknoir:latest
+    container_name: blacknoir_agent
+    # Route the agent's traffic through the VPN container. Comment this out to
+    # run the agent on the default bridge network instead.
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
+    env_file:
+      - ../.env
+    volumes:
+      - ../input:/app/input
+      - ../output:/app/output
+    # Preflight is handled by the host; inside the container use --preflight off.
+    entrypoint: ["python", "main.py"]
+    command: ["--help"]

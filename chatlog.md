@@ -6,13 +6,22 @@ A record of why Black Noir v1.0.0 returned nothing useful, what was actually
 wrong, and every change made in response. Written so the reasoning survives —
 the code comments say *what* a fix does, this says *why it exists*.
 
+> **On the worked example.** Throughout this document the tool is pointed at
+> **me** — I am the "Alex Marsh" in every trace below, searching for myself
+> under a placeholder name. That is deliberate, and it is the only honest way
+> to develop something like this: an untested OSINT tool will produce false,
+> confident claims, and the only person who has consented to receiving those
+> is the person writing it. Every name, employer, profile URL and phone number
+> in this file is a placeholder. The failures are real; the identities are not.
+
 ---
 
 ## 0. The starting point
 
-The trigger was a report: `report_Alex_Marsh_20260826_155222.html`.
+I ran the tool on myself and it came back with nothing —
+`report_Alex_Marsh_20260826_155222.html`.
 
-Instruction given to the tool:
+The instruction I gave it:
 
 ```
 "Alex Marsh" who is from AI Security Industry
@@ -28,12 +37,13 @@ What the report claimed:
 | Confidence | **LOW** — "no direct digital footprint discovered" |
 
 Top "findings": *Alex – Wikipedia*, *Alex Vance*, *Alex Stone*,
-*Marsh's Deli*. The entity graph linked the target to a delicatessen, a
-Telegram channel, and `20260817234951` — a Wayback timestamp misparsed as a
-phone number.
+*Marsh's Deli*. The entity graph linked me to a delicatessen, a Telegram
+channel, and `20260817234951` — a Wayback timestamp misparsed as a phone
+number.
 
-The target was in fact trivially findable. Every failure below was
-reproduced with a measurement before it was fixed.
+I am trivially findable, so this was not a hard target — which is exactly what
+made it a useful test. Every failure below was reproduced with a measurement
+before it was fixed.
 
 ---
 
@@ -169,7 +179,7 @@ Confidence LOW → medium. Measured **with `--no-llm`** — no AI involved.
 
 ## 3. Phase 2 — the candidate loop
 
-The insight was the user's: a common name is *several different people*, and
+The key insight: a common name is *several different people*, and
 one undifferentiated sweep cannot tell them apart or notice it searched badly.
 
 New module `deepsearch.py`:
@@ -258,7 +268,7 @@ authoritative — contradicting candidates are **excluded**, not down-ranked.
 Never refines to zero. Works without an LLM via keyword re-ranking.
 
 ### 5.3 Clarifying questions
-Taken from a Google AI-Mode log the user supplied. The pattern worth stealing
+Taken from a Google AI-Mode log I compared against. The pattern worth stealing
 was not the narrowing — it was that the AI **asked** when `SBC` was ambiguous
 instead of picking one of three unrelated people.
 
@@ -318,7 +328,7 @@ A recurring pattern: **guessing a cause instead of reporting it.**
 Asked *"Who is the person in photo.jpg?"*, the tool searched the **filename** —
 including `person in photo.jpg combolist` on the dark web — graded a `match=0.00`
 candidate as `confirmed`, asked *"Who is the person depicted in the
-self-portrait?"* (the user's own question, handed back), and saved it all to
+self-portrait?"* (my own question, handed back to me), and saved it all to
 memory. Five bugs:
 
 1. placeholder guard missed `boy` and filenames → now catches ~25 person
@@ -387,10 +397,21 @@ Run: `python -m unittest discover -s tests`
 
 # Session 2 — 2026-08-29 · from snippet-aggregator to detective-grade
 
-Trigger: repeated runs on a low-profile target — a Hong Kong secondary student,
-`Lam Wing Kit` (林永傑), one obscure school award page, a common name shared with
-louder namesakes (a Highways engineer, mainland 林永傑s, US "Wing Lam"s). The
-worst case for any OSINT tool, and it exposed every weakness at once.
+Trigger: repeated runs on a genuinely low-profile person — `Lam Wing Kit`
+(林永傑), whose entire public footprint was one obscure institutional award
+page, against a common name shared with louder namesakes (an engineer,
+mainland 林永傑s, US "Wing Lam"s). The worst case for any OSINT tool, and it
+exposed every weakness at once.
+
+> **In hindsight, a badly chosen subject.** The person I tested against was a
+> schoolchild. The engineering lessons below are real and general — they apply
+> to any hard target — but I should have found them against a consenting adult
+> or a public figure, not a minor with one award page to their name. The
+> reports from those runs have been deleted, and the guards this session
+> produced (the name-gate, snippet-splice grounding, the relevance floor) are
+> partly a response to watching the tool confidently invent things about
+> someone who had no idea it was pointed at them. The `Responsible use` section
+> of the README exists because of this session.
 
 ## What was actually wrong (in the order we found it)
 
@@ -404,8 +425,8 @@ worst case for any OSINT tool, and it exposed every weakness at once.
    a key existed.
 
 2. **Fabrication from snippets.** A search snippet stitches non-adjacent page
-   lines with `…`. `"Hong Kong Kin-ball … Lam Wing Kit, 4B"` made the model report
-   the pupil as a kin-ball player — but on the real page he is under an *essay*
+   lines with `…`. `"Hong Kong Kin-ball … Lam Wing Kit, class 4B"` made the model report
+   them as a kin-ball player — but on the real page he is under an *essay*
    award; kin-ball is a different section. Two guards: a **name-gate** (a page
    only becomes a person's evidence if it actually names them — applied to both
    the LLM clustering and the deep-dive judge, which previously trusted the
@@ -438,7 +459,7 @@ worst case for any OSINT tool, and it exposed every weakness at once.
 - **`deepread`** — fetch the pages that name the target and read them IN FULL,
   extracting facts grounded in the text beside the name. This alone removes the
   snippet-splice class of error (on the full page, kin-ball is visibly next to
-  *other* pupils).
+  *other* people).
 - **`discover`** — when the context names an institution, find its domain (from
   results, catching initialisms; else one search) and **merge three free listings
   of its site — sitemap.xml + homepage links + Wayback CDX** — then let the model

@@ -134,7 +134,7 @@ def handle_permutations(name: str, limit: int = 24) -> list:
 
 
 # Words that appear in almost every context string and identify nobody. Building
-# "jason-secondary" or "amarsh-university" wastes probes on generic vocabulary.
+# "alex-secondary" or "amarsh-university" wastes probes on generic vocabulary.
 _CONTEXT_STOPWORDS = {
     "the", "and", "for", "with", "from", "school", "secondary", "primary",
     "university", "college", "student", "graduate", "company", "limited",

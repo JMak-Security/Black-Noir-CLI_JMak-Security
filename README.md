@@ -25,16 +25,204 @@
 > employer, school, or any organisation the author is affiliated with. It is
 > released as-is, with no warranty, for research and educational use.
 
-A visual, reasoning OSINT agent. Give it a name, a handle, an email, a domain,
-a photo, or a plain-English instruction — it plans an investigation, searches
-two surfaces, reverse-searches images, correlates every identifier into an
-interactive link graph, and writes a self-contained HTML report. It also has an
-interactive **chat mode** for open questions.
+<p align="center">
+  <a href="https://pypi.org/project/blacknoir/"><img src="https://img.shields.io/pypi/v/blacknoir.svg" alt="PyPI"></a>
+  <img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT">
+  <img src="https://img.shields.io/badge/tests-388%20passing-brightgreen.svg" alt="388 tests">
+</p>
 
-> **Safety first.** Black Noir reads **search-index metadata only**. It **never**
+Most OSINT tools fan out a fixed set of queries once and summarise whatever
+comes back. That cannot tell **"I found nothing"** from **"I searched wrong"** —
+and for a common name it cannot tell one person from another. Every namesake
+lands in the same undifferentiated pile.
+
+**Black Noir runs the investigation as a loop instead.** It clusters namesakes
+into scored candidates, judges every result against a *specific* candidate,
+harvests what it learns into the next query — and asks you a question when it
+genuinely cannot resolve one.
+
+```bash
+pip install blacknoir[ai]
+cp .env.example .env          # add a search key; SERPER_API_KEY is the workhorse
+blacknoir --chat
+```
+
+```
+you › search A. Rivera who is from the shipping industry
+
+  clustered into 4 candidate(s)
+    [1] A. Rivera — Logistics Analyst, Blue Harbour Lines   match=0.95
+    [2] A. Rivera — Session Musician, Lisbon                match=0.05
+  round 1: A. Rivera Blue Harbour Lines Rotterdam | A. Rivera freight analyst
+  saturated → confirmed, 12 evidence items, 7 queries, confidence HIGH
+```
+
+### Why it's different
+
+| | |
+|---|---|
+| **Identity resolution, not a link dump** | Namesakes are separated into scored candidates; the report says which were *ruled out* and why |
+| **It asks instead of guessing** | An ambiguous acronym, or two candidates scoring within 0.20, produces a question — answer with `/refine <detail>` and it re-narrows |
+| **Honest failure reporting** | A blocked engine reports its real HTTP status. A refusal is never rendered as an absence of results |
+| **Investigation memory** | Confirmed identities warm-start the next run. Local-only, inspectable (`--list-memory`), erasable (`--forget`) |
+| **No facial identification** | Vision reads visible *marks* and *setting*. It never infers "this face belongs to \<name\>" |
+
+> **Safety.** Black Noir reads **search-index metadata only**. It **never**
 > connects to a `.onion` service, **never** downloads a file, and **never**
-> follows a result link. Every network decision is allow-listed and logged. It is
-> for **authorized** OSINT / research on **public** information.
+> follows a result link. Every network decision is allow-listed and logged.
+> Please read [Responsible use](#responsible-use) before pointing it at anyone.
+
+### Contents
+
+[Install](#install) · [Usage](#usage) · [Chat mode](#chat-mode) ·
+[The agent loop](#the-agent-loop) · [What it's good and bad at](#scope-whats-effective-whats-not) ·
+[LLM providers](#llm-providers) · [Environment](#environment-env-or-real-env) ·
+[Safety model](#safety-model-enforced-in-blacknoirguardrailspy) ·
+[Responsible use](#responsible-use)
+
+---
+
+## Highlights
+
+- **Two surfaces** — Public (Bing, Google-via-Serper) + Dark-web indexes over
+  clearnet (Ahmia, Lyzem, keyless-HIBP for domains) plus manual/Tor-only
+  Torch, Telepathy, dark-web-scraper. (Bot-blocked scrapers and paid-only
+  DeHashed were removed.)
+- **Natural-language targets** — `"This is Jensen Huang, find every public detail"`
+  is parsed into subject **Jensen Huang**, type **person**, depth **deep**.
+- **Multi-engine, multi-query** — the AI writes several query angles and every
+  engine sweeps them all; results are merged + deduplicated.
+- **Detective read + agentic crawl** (`/read`, or paste a URL) — goes past
+  snippets: fetches and **reads full pages**, extracts facts grounded in the
+  text next to the name, auto-discovers an institution's site (sitemap +
+  homepage + Wayback) and **navigates it link-by-link** toward the target — a
+  read-only agent loop that reaches obscure pages search ranking buries.
+- **Reads over snippets = fewer false findings** — a name-gate (only pages that
+  name the person become evidence) + snippet-splice grounding (a fact must sit
+  beside the name, not across a `…`) stop the classic "the snippet stitched two
+  people together" error. Adaptive, symmetric constraints — no hardcoded
+  "student vs professional" personas.
+- **Honest under failure** — a run that couldn't reach any language model falls
+  back to a deterministic summary and shows a red **⚠ AI DEGRADED** banner, so a
+  thin result is never mistaken for "nothing exists".
+- **Reverse-image search** — real uploads to **SauceNAO** + **IQDB**, routed by
+  what the image *is*: art → art matchers; **person → face-appropriate engines**
+  (Yandex/Lens + PimEyes/FaceCheck as manual, consent-gated links).
+- **Vision** — reads signatures/handles/watermarks from images into the graph.
+- **Five LLM providers** — Anthropic, OpenAI, Google, NVIDIA, local Ollama
+  (auto-started). Deterministic heuristic fallback when none is set.
+- **Chat mode** — `--chat` for open Q&A + `/search` commands, plus `/fetch <url>`
+  to read one page you name (as text; it lists the links it finds and follows
+  none).
+- **Reflection loop** — after a sweep, the loop checks whether anything actually
+  ties the *name* to the *context*. If not, a model panel diagnoses the miss
+  (`namesakes` / `context_only` / `off_topic` / `absent`) and re-queries against
+  that diagnosis. It also re-derives queries from the domains the results
+  themselves revealed, with no model at all.
+- **Name↔handle confirmation** — links a real name to an account handle only
+  when the account **publicly declares that name** (`github.com/amarsh-sec`
+  says "Alex Marsh"). A same-handle stranger is reported as explicitly *not*
+  linked, never as a finding.
+- **Keyless phone structure** — country, line type and *"carrier not
+  determinable"* straight from the numbering plan. No key, no network, and it
+  never claims to name a subscriber.
+- **Self-audit** — `--check-password` checks one of your own passwords against
+  Have I Been Pwned using k-anonymity; only 5 characters of the SHA-1 hash
+  leave the machine.
+- **Defensive preflight** — checks/starts Docker + VPN before a live search.
+- **Visual report** — interactive force-directed entity graph, findings,
+  timeline, guardrail audit — one self-contained HTML file. Identity candidates
+  are shown **below** the engines and marked `derived`, because they are
+  conclusions drawn from those engines, not sources of their own.
+
+---
+
+## Install
+
+**From PyPI** (recommended):
+
+```bash
+pip install blacknoir           # core: search, correlation, reports
+pip install blacknoir[ai]       # + LLM providers (planning, clustering, vision)
+pip install blacknoir[all]      # + TLS impersonation and image EXIF
+```
+
+Then `blacknoir --chat`, or `python -m blacknoir` if the script isn't on PATH.
+
+**From source:**
+
+```bash
+git clone https://github.com/JMak-Security/Black-Noir-CLI_JMak-Security.git
+cd Black-Noir-CLI_JMak-Security
+pip install -r requirements.txt
+python main.py --chat
+```
+
+**Prebuilt Windows binaries** are attached to each
+[release](https://github.com/JMak-Security/Black-Noir-CLI_JMak-Security/releases)
+— no Python needed.
+
+Either way, copy `.env.example` to `.env` and fill in the key(s) you use.
+`SERPER_API_KEY` is the one that does the heavy lifting; the keyless sources are
+best-effort and rate-limited.
+
+Everything is optional and degrades gracefully:
+- no `requests`/`bs4` → **plan-only** (prepares queries, no network)
+- no LLM provider / `--no-llm` → deterministic **heuristic** agent (fully offline)
+
+Windows one-liners: `build.bat` (build the exe), `test.bat` (run tests),
+`run.bat …` (run exe or fall back to source).
+
+---
+
+## Usage
+
+```bash
+# natural-language target + photo in input/, full live sweep
+python main.py "This is Jensen Huang, search every public detail about him" --live
+
+# a username on the dark-web surface
+python main.py "@nightowl" --surface darkweb --live
+
+# an email, everything
+python main.py "john.doe@example.com" --surface all --live
+
+# interactive chatbot
+python main.py --chat
+
+# just the checks
+python main.py --doctor
+python main.py --list-sources
+```
+
+### Flags
+
+| Flag | Meaning |
+|------|---------|
+| `target` | a name, username, `@handle`, email, domain, phone, **or a free-form instruction** |
+| `--surface public\|darkweb\|all` | which surface(s) to search (default `all`) |
+| `--live` | perform real clearnet requests (default: **plan-only**, no network) |
+| `--chat` | open the interactive chatbot (open Q&A + `/search`) |
+| `--provider auto\|anthropic\|openai\|google\|nvidia\|ollama` | LLM backend |
+| `--model id` | override the model for the chosen provider |
+| `--no-llm` | force the deterministic heuristic agent |
+| `--reverse-image auto\|off` | reverse-image search on input images (default auto) |
+| `--enrich auto\|off` | native enrichment of domains/IPs/BTC/handles via keyless official APIs (default auto, live-only) |
+| `--preflight off\|warn\|enforce` | Docker+VPN check before a live search |
+| `--yes` / `-y` | auto-approve preflight install/start/spin-up |
+| `--doctor` | run the Docker+VPN checks and exit |
+| `--only k1,k2` | restrict to specific source keys |
+| `--all-sources` | query **every** applicable source, not just the planner's pick |
+| `--no-pdf` | skip the PDF report (PDF is written by default) |
+| `--no-runbook` | skip the manual runbook (Tor/Telepathy steps, written by default) |
+| `--input-dir` / `--output-dir` | override folders (default `input/`, `output/`) |
+| `--quiet` | suppress progress output |
+| `--list-sources` | list every source + provider and exit |
+| `--check-password` | **self-audit:** check ONE of your own passwords against the HIBP breach corpus and exit. Prompts without echo; k-anonymity means only the first 5 characters of the SHA-1 hash are sent. Needs `--live` |
+
+---
+
 
 ---
 
@@ -123,124 +311,6 @@ authorized the look**:
   org's attack surface?" → domain. Neither needs a person's name or background.
 
 See **Safety model** below for the guardrails that hard-enforce these limits.
-
----
-
-## Highlights
-
-- **Two surfaces** — Public (Bing, Google-via-Serper) + Dark-web indexes over
-  clearnet (Ahmia, Lyzem, keyless-HIBP for domains) plus manual/Tor-only
-  Torch, Telepathy, dark-web-scraper. (Bot-blocked scrapers and paid-only
-  DeHashed were removed.)
-- **Natural-language targets** — `"This is Jensen Huang, find every public detail"`
-  is parsed into subject **Jensen Huang**, type **person**, depth **deep**.
-- **Multi-engine, multi-query** — the AI writes several query angles and every
-  engine sweeps them all; results are merged + deduplicated.
-- **Detective read + agentic crawl** (`/read`, or paste a URL) — goes past
-  snippets: fetches and **reads full pages**, extracts facts grounded in the
-  text next to the name, auto-discovers an institution's site (sitemap +
-  homepage + Wayback) and **navigates it link-by-link** toward the target — a
-  read-only agent loop that reaches obscure pages search ranking buries.
-- **Reads over snippets = fewer false findings** — a name-gate (only pages that
-  name the person become evidence) + snippet-splice grounding (a fact must sit
-  beside the name, not across a `…`) stop the classic "the snippet stitched two
-  people together" error. Adaptive, symmetric constraints — no hardcoded
-  "student vs professional" personas.
-- **Honest under failure** — a run that couldn't reach any language model falls
-  back to a deterministic summary and shows a red **⚠ AI DEGRADED** banner, so a
-  thin result is never mistaken for "nothing exists".
-- **Reverse-image search** — real uploads to **SauceNAO** + **IQDB**, routed by
-  what the image *is*: art → art matchers; **person → face-appropriate engines**
-  (Yandex/Lens + PimEyes/FaceCheck as manual, consent-gated links).
-- **Vision** — reads signatures/handles/watermarks from images into the graph.
-- **Five LLM providers** — Anthropic, OpenAI, Google, NVIDIA, local Ollama
-  (auto-started). Deterministic heuristic fallback when none is set.
-- **Chat mode** — `--chat` for open Q&A + `/search` commands, plus `/fetch <url>`
-  to read one page you name (as text; it lists the links it finds and follows
-  none).
-- **Reflection loop** — after a sweep, the loop checks whether anything actually
-  ties the *name* to the *context*. If not, a model panel diagnoses the miss
-  (`namesakes` / `context_only` / `off_topic` / `absent`) and re-queries against
-  that diagnosis. It also re-derives queries from the domains the results
-  themselves revealed, with no model at all.
-- **Name↔handle confirmation** — links a real name to an account handle only
-  when the account **publicly declares that name** (`github.com/amarsh-sec`
-  says "Alex Marsh"). A same-handle stranger is reported as explicitly *not*
-  linked, never as a finding.
-- **Keyless phone structure** — country, line type and *"carrier not
-  determinable"* straight from the numbering plan. No key, no network, and it
-  never claims to name a subscriber.
-- **Self-audit** — `--check-password` checks one of your own passwords against
-  Have I Been Pwned using k-anonymity; only 5 characters of the SHA-1 hash
-  leave the machine.
-- **Defensive preflight** — checks/starts Docker + VPN before a live search.
-- **Visual report** — interactive force-directed entity graph, findings,
-  timeline, guardrail audit — one self-contained HTML file. Identity candidates
-  are shown **below** the engines and marked `derived`, because they are
-  conclusions drawn from those engines, not sources of their own.
-
----
-
-## Install
-
-```bash
-pip install -r requirements.txt      # requests, beautifulsoup4, anthropic, openai
-cp .env.example .env                 # then fill in the key(s) you use
-```
-
-Everything is optional and degrades gracefully:
-- no `requests`/`bs4` → **plan-only** (prepares queries, no network)
-- no LLM provider / `--no-llm` → deterministic **heuristic** agent (fully offline)
-
-Windows one-liners: `build.bat` (build the exe), `test.bat` (run tests),
-`run.bat …` (run exe or fall back to source).
-
----
-
-## Usage
-
-```bash
-# natural-language target + photo in input/, full live sweep
-python main.py "This is Jensen Huang, search every public detail about him" --live
-
-# a username on the dark-web surface
-python main.py "@nightowl" --surface darkweb --live
-
-# an email, everything
-python main.py "john.doe@example.com" --surface all --live
-
-# interactive chatbot
-python main.py --chat
-
-# just the checks
-python main.py --doctor
-python main.py --list-sources
-```
-
-### Flags
-
-| Flag | Meaning |
-|------|---------|
-| `target` | a name, username, `@handle`, email, domain, phone, **or a free-form instruction** |
-| `--surface public\|darkweb\|all` | which surface(s) to search (default `all`) |
-| `--live` | perform real clearnet requests (default: **plan-only**, no network) |
-| `--chat` | open the interactive chatbot (open Q&A + `/search`) |
-| `--provider auto\|anthropic\|openai\|google\|nvidia\|ollama` | LLM backend |
-| `--model id` | override the model for the chosen provider |
-| `--no-llm` | force the deterministic heuristic agent |
-| `--reverse-image auto\|off` | reverse-image search on input images (default auto) |
-| `--enrich auto\|off` | native enrichment of domains/IPs/BTC/handles via keyless official APIs (default auto, live-only) |
-| `--preflight off\|warn\|enforce` | Docker+VPN check before a live search |
-| `--yes` / `-y` | auto-approve preflight install/start/spin-up |
-| `--doctor` | run the Docker+VPN checks and exit |
-| `--only k1,k2` | restrict to specific source keys |
-| `--all-sources` | query **every** applicable source, not just the planner's pick |
-| `--no-pdf` | skip the PDF report (PDF is written by default) |
-| `--no-runbook` | skip the manual runbook (Tor/Telepathy steps, written by default) |
-| `--input-dir` / `--output-dir` | override folders (default `input/`, `output/`) |
-| `--quiet` | suppress progress output |
-| `--list-sources` | list every source + provider and exit |
-| `--check-password` | **self-audit:** check ONE of your own passwords against the HIBP breach corpus and exit. Prompts without echo; k-anonymity means only the first 5 characters of the SHA-1 hash are sent. Needs `--live` |
 
 ---
 
